@@ -27,3 +27,82 @@
     
 </body>
 </html>
+
+public class PcsPortabilidadeS
+{
+    private readonly IPcsPortabilidadeQ _q;
+    private readonly IEmailService _emailService;
+
+    public PcsPortabilidadeS(IPcsPortabilidadeQ q, IEmailService emailService)
+    {
+        _q = q;
+        _emailService = emailService;
+    }
+
+    public Retorno<TOPcsPortabilidade> ProcessarEEnviarEmail(TOPcsPortabilidade to, int idProcesso)
+    {
+        try
+        {
+            // 1) valida e-mail
+            var retEmail = ValidarEmail(to.Email);
+            if (!retEmail.Ok)
+            {
+                to.EmailEnviado = false;
+                to.MsgEmail = "E-mail não enviado: endereço de e-mail inválido.";
+                // você pode retornar Falha se quiser bloquear a operação inteira,
+                // ou retornar Sucesso com aviso. Aqui vou devolver Sucesso com aviso.
+                return Retorno<TOPcsPortabilidade>.Sucesso(to, to.MsgEmail);
+            }
+
+            // 2) monta conteúdo do e-mail (exemplo)
+            string assunto = "Confirmação";
+            string corpo = "Seu processo foi registrado com sucesso.";
+
+            // 3) tenta enviar
+            string erro;
+            bool enviado = _emailService.Enviar(to.Email, assunto, corpo, out erro);
+
+            to.EmailEnviado = enviado;
+
+            if (enviado)
+            {
+                to.MsgEmail = "E-mail enviado com sucesso ✅";
+                _q.RegistrarLogEnvioEmail(idProcesso, true, "Enviado com sucesso");
+                return Retorno<TOPcsPortabilidade>.Sucesso(to, to.MsgEmail);
+            }
+            else
+            {
+                to.MsgEmail = "Não foi possível enviar o e-mail no momento ⚠️";
+                _q.RegistrarLogEnvioEmail(idProcesso, false, erro ?? "Falha ao enviar");
+                
+                // Aqui você decide:
+                // A) retornar Sucesso com aviso (mais comum quando envio não é crítico)
+                return Retorno<TOPcsPortabilidade>.Sucesso(to, to.MsgEmail);
+
+                // B) ou retornar Falha se o envio for obrigatório:
+                // return Retorno<TOPcsPortabilidade>.Falha("Falha ao enviar e-mail: " + (erro ?? "erro desconhecido"));
+            }
+        }
+        catch (Exception ex)
+        {
+            return Retorno<TOPcsPortabilidade>.Falha("Erro ao processar: " + ex.Message);
+        }
+    }
+
+    private Retorno ValidarEmail(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return Retorno.Falha("E-mail vazio");
+
+        // Validação simples usando MailAddress (mais confiável que regex gigante)
+        try
+        {
+            var _ = new System.Net.Mail.MailAddress(email);
+            return Retorno.Sucesso();
+        }
+        catch
+        {
+            return Retorno.Falha("Formato inválido");
+        }
+    }
+}
